@@ -182,7 +182,7 @@ export function createHandler(dbPath: string, opt: Options = {}) {
     return new Response(f.readable, {
       headers: {
         ...headers,
-        "content-type": "application/gzip",
+        "content-type": "application/zip",
         "content-length": String((await f.stat()).size),
         "content-disposition": `attachment; filename="${name}"`,
       },
@@ -334,9 +334,7 @@ ${
             }</td></tr>`
           ).join("")
         }</table>
-<p><small>作成: ${
-          esc(jst(manifest.created_at))
-        }。gzip圧縮のため展開して使います(例: <code>gunzip survey.db.gz</code>)。</small></p>`
+<p><small>作成: ${esc(jst(manifest.created_at))}。ZIP形式です。展開して使ってください。</small></p>`
         : "<p>準備中です(<code>deno task import</code> または <code>deno task update</code> で作成されます)。</p>"
     }
 <h2>SQL</h2>
