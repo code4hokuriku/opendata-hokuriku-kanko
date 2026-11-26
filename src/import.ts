@@ -1,4 +1,5 @@
 /** output_merge/*.csv と fiscalyearly/*.csv から SQLite データベースを作る: deno task import [csvDir] [dbPath] [pastDir] */
+import { ensureDownloads } from "./download.ts";
 import { DatabaseSync } from "node:sqlite";
 import { CsvParseStream } from "@std/csv";
 import { COMMENT_FIELDS, DERIVED_COLUMNS, FLAG_GROUPS, isFlag, q, RAW_COLUMNS } from "./columns.ts";
@@ -254,7 +255,11 @@ if (import.meta.main) {
     Deno.exit(1);
   }
   const t = performance.now();
-  const r = await withLock(dbPath, () => importCsv(csvDir, dbPath, { pastDir }));
+  const r = await withLock(dbPath, async () => {
+    const r = await importCsv(csvDir, dbPath, { pastDir });
+    await ensureDownloads(dbPath);
+    return r;
+  });
   console.log(
     `完了: ${r.rows} 件 / 自由記述 ${r.comments} 件 / 完全重複 ${r.duplicates} 件 → ${dbPath}` +
       ` (${((performance.now() - t) / 1000).toFixed(1)}秒)`,

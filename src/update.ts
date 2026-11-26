@@ -3,6 +3,7 @@
  *
  * ダウンロード・検証・DB作成はすべて作業フォルダで行い、成功したときだけ本番へ反映する。
  */
+import { ensureDownloads } from "./download.ts";
 import { DatabaseSync } from "node:sqlite";
 import { PAST_FILES } from "./fukui_fiscal.ts";
 import { importCsv, withLock } from "./import.ts";
@@ -149,6 +150,12 @@ export function update(opt: UpdateOptions): Promise<UpdateStatus> {
         updated_at: prev?.updated_at ?? null,
         error: (e as Error).message,
       };
+    }
+    // DBが変わったとき(または前回作れなかったとき)だけ作り直す
+    try {
+      if (exists(opt.dbPath)) await ensureDownloads(opt.dbPath);
+    } catch (e) {
+      st.warnings.push(`一括ダウンロード用ファイルを作れませんでした: ${(e as Error).message}`);
     }
     writeStatus(opt.dbPath, st);
     return st;

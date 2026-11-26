@@ -126,7 +126,12 @@ Deno.test("異常時は手元のCSVとDBを変えず、エラーを記録する"
   up.s.pastDown = false;
   assertEquals(await total(handler), 115);
   const left = [...Deno.readDirSync(opt.dbPath.replace("/survey.db", ""))].map((e) => e.name);
-  assertEquals(left.sort(), ["survey.db", "survey.db.lock", "survey.db.update.json"]);
+  assertEquals(left.sort(), [
+    "download",
+    "survey.db",
+    "survey.db.lock",
+    "survey.db.update.json",
+  ]);
 
   // --force なら減少も反映する
   up.s.files[NAME] = csvText(rows(50));

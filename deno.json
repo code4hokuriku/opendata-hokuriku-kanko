@@ -3,12 +3,14 @@
     "import": "deno run --allow-read=. --allow-write=data src/import.ts",
     "update": "deno run --allow-read=. --allow-write=data,output_merge,fiscalyearly --allow-net=api.github.com,raw.githubusercontent.com src/update.ts",
     "serve": "deno run --allow-read=. --allow-net --allow-env=PORT,HOST,AUTO_UPDATE --allow-run=deno src/server.ts",
+    "mcp": "deno run --allow-read=. --allow-run=deno src/mcp_stdio.ts",
     "test": "deno test --allow-read --allow-write --allow-run=deno --allow-net=127.0.0.1 tests/",
     "check": "deno check src/ tests/ && deno lint src/ tests/"
   },
   "fmt": { "lineWidth": 100 },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1",
-    "@std/csv": "jsr:@std/csv@^1"
+    "@std/csv": "jsr:@std/csv@^1",
+    "@std/streams": "jsr:@std/streams@^1"
   }
 }

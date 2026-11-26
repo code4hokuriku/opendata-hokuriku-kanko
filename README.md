@@ -31,6 +31,17 @@ deno task test
 0 15 * * * cd /path/to/opendata-hokuriku-kanko && deno task update
 ```
 
+## 一括ダウンロード
+
+トップページから、全データをgzip圧縮したファイルをダウンロードできます(容量はトップページと `/api/meta` の `downloads` に表示)。
+
+| パス | 内容 | 容量の目安 |
+|---|---|---|
+| `/download/survey.db.gz` | SQLiteデータベース(`survey` `comments` `import_info`) | 約33MB(展開後 約190MB) |
+| `/download/survey.csv.gz` | `survey` テーブルのCSV(BOM付きUTF-8、派生列+元の126列) | 約21MB(展開後 約165MB) |
+
+`gunzip survey.db.gz` などで展開して使います。DBを作り直すたび(`deno task import` / `deno task update` / 自動更新)に、`data/download/` に作り直されます(約9秒)。APIで全件を取得するより、こちらを使ってください。
+
 ## エンドポイント
 
 どれも `format=csv` でCSV(BOM付き)になります(`/api/meta`、`/api/columns` を除く)。
@@ -79,6 +90,48 @@ curl http://127.0.0.1:8000/api/sql -H 'content-type: application/json' \
 ```
 
 SQLは読み取り専用の子プロセスで実行し、30秒で打ち切ります。記号(`/` や `( )`)を含む列名は `"対象県（富山/石川/福井）"` のように二重引用符で囲みます。
+
+## MCP
+
+Claude などのAIアシスタントから、MCP(Model Context Protocol)のツールとして使えます。ツールは上のエンドポイントと同じ内容です。
+
+| ツール | 対応するAPI |
+|---|---|
+| `survey_meta` | `/api/meta` |
+| `list_columns` | `/api/columns` |
+| `column_values` | `/api/columns/{列}` |
+| `aggregate` | `/api/aggregate` |
+| `flag_rates` | `/api/flags` |
+| `search_comments` | `/api/comments` |
+| `query_responses` | `/api/responses` |
+| `run_sql` | `/api/sql` |
+
+絞り込みは `filters` にオブジェクトで渡します(例: `{"prefecture": "福井", "age_group": ["20代", "30代"], "recommend__lte": 6}`)。
+
+**stdio**(サーバーを動かさずに使う。Claude Desktop など):
+
+```sh
+claude mcp add hokuriku-kanko -- deno task --config /path/to/opendata-hokuriku-kanko/deno.json mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "hokuriku-kanko": {
+      "command": "deno",
+      "args": ["task", "--config", "/path/to/opendata-hokuriku-kanko/deno.json", "mcp"]
+    }
+  }
+}
+```
+
+**HTTP**(`deno task serve` の稼働中、`/mcp` で受け付けます):
+
+```sh
+claude mcp add --transport http hokuriku-kanko http://127.0.0.1:8000/mcp
+```
+
+別オリジンのブラウザからの `/mcp` へのリクエストは拒否します。
 
 ## テーブル
 

@@ -17,6 +17,8 @@ import {
   type Sql,
   valuesQuery,
 } from "./query.ts";
+import { downloadDir, type Manifest, readManifest } from "./download.ts";
+import { handleMcpHttp } from "./mcp.ts";
 import { startAutoUpdate } from "./scheduler.ts";
 import { readStatus } from "./update_status.ts";
 import { Busy, runSql, SqlTimeout } from "./sql_runner.ts";
@@ -77,7 +79,10 @@ export function createHandler(dbPath: string, opt: Options = {}) {
     const reply = (columns: string[], rows: Rows, meta: Record<string, unknown> = {}) =>
       format === "csv" ? csv(columns, rows) : json({ ...meta, rows });
 
-    if (path === "/") return index();
+    if (path === "/") return index(readManifest(dbPath));
+    if (path.startsWith("/download/")) {
+      return download(req, decodeURIComponent(path.slice("/download/".length)));
+    }
     if (path === "/api/meta") return meta();
     if (path === "/api/columns") return columnsInfo();
     if (path.startsWith("/api/columns/")) {
@@ -134,6 +139,7 @@ export function createHandler(dbPath: string, opt: Options = {}) {
     return json({
       imported_at: info.imported_at,
       last_update: readStatus(dbPath),
+      downloads: downloadsInfo(),
       files: JSON.parse(info.files as string),
       total: count({ sql: "SELECT count(*) AS n FROM survey", params: [] }),
       prefectures: all({
@@ -151,6 +157,35 @@ export function createHandler(dbPath: string, opt: Options = {}) {
         "https://github.com/hokuriku-inbound-kanko/opendata/",
         "https://github.com/code4fukui/fukui-kanko-survey/tree/master/fiscalyearly",
       ],
+    });
+  }
+
+  function downloadsInfo() {
+    const m = readManifest(dbPath);
+    return m?.files.map((f) => ({ ...f, url: `/download/${f.name}`, created_at: m.created_at })) ??
+      [];
+  }
+
+  async function download(req: Request, name: string): Promise<Response> {
+    const m = readManifest(dbPath);
+    if (!m?.files.some((f) => f.name === name)) return json({ error: "Not Found", see: "/" }, 404);
+    const etag = `"${m.db_version}:${name}"`;
+    const headers = {
+      ...CORS,
+      etag,
+      "cache-control": "public, max-age=3600",
+    };
+    if (req.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers });
+    }
+    const f = await Deno.open(`${downloadDir(dbPath)}/${name}`, { read: true });
+    return new Response(f.readable, {
+      headers: {
+        ...headers,
+        "content-type": "application/gzip",
+        "content-length": String((await f.stat()).size),
+        "content-disposition": `attachment; filename="${name}"`,
+      },
     });
   }
 
@@ -182,10 +217,12 @@ export function createHandler(dbPath: string, opt: Options = {}) {
   }
 
   const handler = async (req: Request): Promise<Response> => {
+    const url = new URL(req.url);
+    if (url.pathname === "/mcp") return handleMcpHttp(handler, req);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     try {
       refresh();
-      return await route(req, new URL(req.url));
+      return await route(req, url);
     } catch (e) {
       if (e instanceof BadRequest || e instanceof URIError) return json({ error: e.message }, 400);
       if (e instanceof SqlTimeout) return json({ error: e.message }, 408);
@@ -229,7 +266,21 @@ function csv(columns: string[], rows: Rows): Response {
   });
 }
 
-function index(): Response {
+/** ISO日時 → "2026-11-26 10:26(日本時間)" */
+function jst(iso: string): string {
+  const d = new Date(new Date(iso).getTime() + 9 * 3600_000).toISOString();
+  return `${d.slice(0, 10)} ${d.slice(11, 16)}(日本時間)`;
+}
+
+/** 1234567 → "1.2 MB" */
+function formatSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function index(manifest: Manifest | null): Response {
   const ex: [string, string][] = [
     ["データの概要", "/api/meta"],
     ["列の一覧", "/api/columns"],
@@ -263,12 +314,31 @@ function index(): Response {
 <title>北陸観光アンケート API</title>
 <style>body{font-family:sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;line-height:1.6}
 dd{margin:0 0 .8rem}a{word-break:break-all}textarea{width:100%;height:6rem;box-sizing:border-box}
-pre{overflow:auto;background:#8881;padding:.5rem;max-height:30rem}</style>
+pre{overflow:auto;background:#8881;padding:.5rem;max-height:30rem}
+table{border-collapse:collapse}th,td{border:1px solid #8884;padding:.3rem .6rem;text-align:left}
+td.n{text-align:right;white-space:nowrap}</style>
 <h1>北陸観光アンケート API</h1>
 <dl>${
       ex.map(([t, u]) => `<dt>${esc(t)}</dt><dd><a href="${esc(encodeURI(u))}">${esc(u)}</a></dd>`)
         .join("\n")
     }</dl>
+<h2>一括ダウンロード</h2>
+${
+      manifest
+        ? `<table><tr><th>ファイル</th><th>容量</th><th>展開後</th><th>内容</th></tr>${
+          manifest.files.map((f) =>
+            `<tr><td><a href="/download/${esc(f.name)}" download>${esc(f.name)}</a></td>
+<td class="n">${formatSize(f.size)}</td><td class="n">${formatSize(f.raw_size)}</td>
+<td>${
+              esc(f.description)
+            }</td></tr>`
+          ).join("")
+        }</table>
+<p><small>作成: ${
+          esc(jst(manifest.created_at))
+        }。gzip圧縮のため展開して使います(例: <code>gunzip survey.db.gz</code>)。</small></p>`
+        : "<p>準備中です(<code>deno task import</code> または <code>deno task update</code> で作成されます)。</p>"
+    }
 <h2>SQL</h2>
 <textarea id="sql">SELECT prefecture, count(*) AS n, round(avg(recommend), 2) AS avg_recommend
 FROM survey GROUP BY prefecture</textarea>
